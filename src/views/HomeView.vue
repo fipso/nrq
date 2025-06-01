@@ -7,16 +7,25 @@ const router = useRouter();
 
 const lobbies = ref<Lobby[]>([]);
 const isConnected = ref(false);
-const playerName = ref('');
-const playerLevel = ref(1);
-const showNameInput = ref(true);
 
 const joinLobby = (lobbyId: string) => {
   if (!isConnected.value) {
     alert('Not connected to server');
     return;
   }
-  wsService.joinLobby(lobbyId);
+  
+  let playerName = localStorage.getItem('playerName');
+  if (!playerName) {
+    playerName = prompt('Enter your username:');
+    if (playerName && playerName.trim()) {
+      localStorage.setItem('playerName', playerName.trim());
+    } else {
+      alert('Username required');
+      return;
+    }
+  }
+  
+  wsService.joinLobby(lobbyId, playerName);
 };
 
 const enterQueue = () => {
@@ -30,8 +39,18 @@ const enterQueue = () => {
     const randomLobby = availableLobbies[Math.floor(Math.random() * availableLobbies.length)];
     joinLobby(randomLobby.id);
   } else {
-    const lobbyTitle = `${playerName.value}'s Adventure`;
-    wsService.createLobby(lobbyTitle);
+    let playerName = localStorage.getItem('playerName');
+    if (!playerName) {
+      playerName = prompt('Enter your username:');
+      if (playerName && playerName.trim()) {
+        localStorage.setItem('playerName', playerName.trim());
+      } else {
+        alert('Username required');
+        return;
+      }
+    }
+    const lobbyTitle = `${playerName}'s Adventure`;
+    wsService.createLobby(lobbyTitle, 3, playerName);
   }
 };
 
@@ -41,16 +60,20 @@ const createLobby = () => {
     return;
   }
   
+  let playerName = localStorage.getItem('playerName');
+  if (!playerName) {
+    playerName = prompt('Enter your username:');
+    if (playerName && playerName.trim()) {
+      localStorage.setItem('playerName', playerName.trim());
+    } else {
+      alert('Username required');
+      return;
+    }
+  }
+  
   const title = prompt('Enter lobby title:');
   if (title) {
-    wsService.createLobby(title);
-  }
-};
-
-const registerPlayer = () => {
-  if (playerName.value.trim()) {
-    wsService.registerPlayer(playerName.value.trim(), playerLevel.value);
-    showNameInput.value = false;
+    wsService.createLobby(title, 3, playerName);
   }
 };
 
@@ -77,12 +100,29 @@ const connectToServer = async () => {
     });
     
     wsService.on('error', (data: any) => {
-      alert(data.message);
+      // If already in lobby, just redirect to lobby instead of showing error
+      if (data.message === 'Already in lobby' && data.lobbyId) {
+        router.push(`/lobbys/${data.lobbyId}`);
+      } else {
+        alert(data.message);
+      }
     });
     
-    wsService.on('player_registered', (data: any) => {
-      wsService.getLobbies();
+    wsService.on('current_lobby', (data: any) => {
+      // User is already in a lobby, redirect there
+      if (data.lobby) {
+        router.push(`/lobbys/${data.lobby.id}`);
+      }
     });
+    
+    // Check if user is already in a lobby
+    const savedPlayerName = localStorage.getItem('playerName');
+    if (savedPlayerName) {
+      wsService.getCurrentLobby(savedPlayerName);
+    }
+    
+    // Get lobbies list
+    wsService.getLobbies();
     
   } catch (error) {
     console.error('Failed to connect to WebSocket server:', error);
@@ -95,42 +135,19 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  wsService.disconnect();
+  // Clean up event handlers but don't disconnect the WebSocket
+  wsService.off('lobbies_list');
+  wsService.off('lobbies_updated');
+  wsService.off('lobby_created');
+  wsService.off('lobby_joined');
+  wsService.off('current_lobby');
+  wsService.off('error');
 });
 </script>
 
 <template>
   <div class="matchmaking-container">
-    <!-- Player Registration Modal -->
-    <div v-if="showNameInput" class="name-input-modal">
-      <div class="modal-content">
-        <h2>Enter the Lands Between</h2>
-        <div class="input-group">
-          <label>Tarnished Name:</label>
-          <input 
-            v-model="playerName" 
-            @keyup.enter="registerPlayer"
-            placeholder="Your character name"
-            class="name-input"
-          />
-        </div>
-        <div class="input-group">
-          <label>Level:</label>
-          <input 
-            v-model.number="playerLevel" 
-            type="number" 
-            min="1" 
-            max="713"
-            class="level-input"
-          />
-        </div>
-        <button @click="registerPlayer" class="register-btn" :disabled="!playerName.trim()">
-          Begin Journey
-        </button>
-      </div>
-    </div>
-
-    <div v-else class="main-content">
+    <div class="main-content">
       <!-- Connection Status -->
       <div class="connection-status" :class="{ connected: isConnected, disconnected: !isConnected }">
         <span class="status-indicator"></span>

@@ -133,22 +133,26 @@ export class WebSocketService {
     }
   }
 
-  // Player methods
-  registerPlayer(name: string, level: number = 1) {
-    this.send('register_player', { name, level });
-  }
 
   // Lobby methods
   getLobbies() {
     this.send('get_lobbies');
   }
 
-  createLobby(title: string, maxPlayers: number = 3) {
-    this.send('create_lobby', { title, maxPlayers });
+  createLobby(title: string, maxPlayers: number = 3, playerName?: string) {
+    const data: any = { title, maxPlayers };
+    if (playerName) {
+      data.playerName = playerName;
+    }
+    this.send('create_lobby', data);
   }
 
-  joinLobby(lobbyId: string) {
-    this.send('join_lobby', { lobbyId });
+  joinLobby(lobbyId: string, playerName?: string) {
+    const data: any = { lobbyId };
+    if (playerName) {
+      data.playerName = playerName;
+    }
+    this.send('join_lobby', data);
   }
 
   leaveLobby() {
@@ -159,8 +163,19 @@ export class WebSocketService {
     this.send('delist_lobby');
   }
 
-  getLobbyDetails() {
-    this.send('get_lobby_details');
+  getLobbyDetails(lobbyId?: string, playerName?: string) {
+    const data: any = {};
+    if (lobbyId) {
+      data.lobbyId = lobbyId;
+    }
+    if (playerName) {
+      data.playerName = playerName;
+    }
+    this.send('get_lobby_details', data);
+  }
+
+  getCurrentLobby(playerName: string) {
+    this.send('get_current_lobby', { playerName });
   }
 
   // Chat methods

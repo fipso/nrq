@@ -13,14 +13,27 @@ const chatMessage = ref('');
 const isReady = ref(false);
 const isPrivate = ref(false);
 const chatMessages = ref<ChatMessage[]>([]);
+const currentPlayerName = ref('');
 
 const generatePassword = () => {
   wsService.regeneratePassword();
+  // Optimistic update - will be overridden by server response if different
 };
 
 const sendMessage = () => {
   if (chatMessage.value.trim() && isConnected.value) {
-    wsService.sendChatMessage(chatMessage.value.trim());
+    const message = chatMessage.value.trim();
+    
+    // Optimistic update - add message immediately to local state
+    const newMessage: ChatMessage = {
+      id: Date.now().toString(), // Temporary ID
+      user: currentPlayerName.value || 'You',
+      message: message,
+      timestamp: new Date()
+    };
+    chatMessages.value.push(newMessage);
+    
+    wsService.sendChatMessage(message);
     chatMessage.value = '';
   }
 };
@@ -45,6 +58,8 @@ const delistLobby = () => {
 
 const togglePrivate = () => {
   if (isConnected.value) {
+    // Optimistic update - toggle immediately
+    isPrivate.value = !isPrivate.value;
     wsService.togglePrivacy();
   }
 };
@@ -66,10 +81,28 @@ const connectToServer = async () => {
       lobbyPassword.value = data.lobby.password;
       isPrivate.value = data.lobby.isPrivate;
       chatMessages.value = data.lobby.chatMessages;
+      
+      // Find current player name (assuming we're in the lobby)
+      if (data.currentPlayer) {
+        currentPlayerName.value = data.currentPlayer.name;
+      } else if (data.lobby.players.length > 0) {
+        // Fallback: use first player as current player
+        currentPlayerName.value = data.lobby.players[0].name;
+      }
     });
     
     wsService.on('chat_message', (data: any) => {
-      chatMessages.value.push(data.message);
+      // Check if this message is from the current user and already exists (optimistic update)
+      const isDuplicate = data.message.user === currentPlayerName.value && 
+        chatMessages.value.some(msg => 
+          msg.user === data.message.user && 
+          msg.message === data.message.message && 
+          Math.abs(new Date(msg.timestamp).getTime() - new Date(data.message.timestamp).getTime()) < 5000
+        );
+      
+      if (!isDuplicate) {
+        chatMessages.value.push(data.message);
+      }
     });
     
     wsService.on('password_updated', (data: any) => {
@@ -103,12 +136,54 @@ const connectToServer = async () => {
       router.push('/');
     });
     
-    wsService.on('error', (data: any) => {
-      alert(data.message);
+    wsService.on('lobby_joined', (data: any) => {
+      // Successfully joined lobby, update local state
+      lobby.value = data.lobby;
+      if (data.lobby) {
+        lobbyPassword.value = data.lobby.password;
+        isPrivate.value = data.lobby.isPrivate;
+        chatMessages.value = data.lobby.chatMessages;
+        // Set current player name
+        if (data.currentPlayer) {
+          currentPlayerName.value = data.currentPlayer.name;
+        }
+      }
     });
     
-    // Request lobby details
-    wsService.getLobbyDetails();
+    wsService.on('error', (data: any) => {
+      alert(data.message);
+      // If error joining lobby, redirect to home
+      if (data.message.includes('lobby') || data.message.includes('Lobby')) {
+        router.push('/');
+      }
+    });
+    
+    // Extract lobby ID from route and fetch lobby details
+    const lobbyId = route.params.id as string;
+    if (lobbyId) {
+      let playerName = localStorage.getItem('playerName');
+      
+      if (!playerName) {
+        // First time - ask for username
+        playerName = prompt('Enter your username:');
+        if (playerName && playerName.trim()) {
+          localStorage.setItem('playerName', playerName.trim());
+          currentPlayerName.value = playerName.trim();
+        } else {
+          alert('Username required');
+          router.push('/');
+          return;
+        }
+      } else {
+        currentPlayerName.value = playerName;
+      }
+      
+      // Always just fetch lobby details - backend will handle if we need to join
+      wsService.getLobbyDetails(lobbyId, currentPlayerName.value);
+    } else {
+      alert('No lobby ID provided');
+      router.push('/');
+    }
     
   } catch (error) {
     console.error('Failed to connect to WebSocket server:', error);
@@ -122,7 +197,17 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  wsService.disconnect();
+  // Clean up event handlers but don't disconnect the WebSocket
+  wsService.off('lobby_details');
+  wsService.off('chat_message');
+  wsService.off('password_updated');
+  wsService.off('privacy_updated');
+  wsService.off('player_joined');
+  wsService.off('player_left');
+  wsService.off('lobby_left');
+  wsService.off('lobby_delisted');
+  wsService.off('lobby_joined');
+  wsService.off('error');
 });
 </script>
 
