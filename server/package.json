@@ -1,0 +1,19 @@
+{
+  "name": "nrq-server",
+  "version": "1.0.0",
+  "description": "Nightreign Queue WebSocket Server",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.8",
+    "@types/uuid": "^9.0.6"
+  }
+}
